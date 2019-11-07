@@ -52,6 +52,11 @@ func main() {
 			false,
 			"Do not actually DELETE files",
 		)
+		dir = flag.String(
+			"dir",
+			"",
+			"Serve files fron `directory`, not memory",
+		)
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(
@@ -69,11 +74,18 @@ Options:
 	}
 	flag.Parse()
 
+	var fs webdav.FileSystem
+	if "" != *dir {
+		fs = webdav.Dir(*dir)
+	} else {
+		fs = webdav.NewMemFS()
+	}
+
 	/* WebDAV handler */
 	s := server{
 		noDelete: *noDelete,
 		w: &webdav.Handler{
-			FileSystem: webdav.NewMemFS(),
+			FileSystem: fs,
 			LockSystem: webdav.NewMemLS(),
 		},
 	}

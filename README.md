@@ -8,4 +8,6 @@ one feature that DELETE requests can be ignored but returned a 200.
 By default only HTTP is served.  With `-https-addr` HTTPS will be served as
 well.
 
+Files can be served from disk as well as memory with the `-dir` flag.
+
 For legal use only.
