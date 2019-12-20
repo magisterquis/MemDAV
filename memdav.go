@@ -6,7 +6,7 @@ package main
  * WebDAV server which stores files in memory
  * By J. Stuart McMurray
  * Created 20191105
- * Last Modified 20191105
+ * Last Modified 20191219
  */
 
 import (
@@ -21,8 +21,9 @@ import (
 
 /* server is a WebDAV handler */
 type server struct {
-	noDelete bool            /* Don't actually handle DELETE */
-	w        *webdav.Handler /* Wrapped WebDAV handler */
+	noDelete  bool            /* Don't actually handle DELETE */
+	w         *webdav.Handler /* Wrapped WebDAV handler */
+	serveFile string          /* Single file to serve */
 }
 
 func main() {
@@ -57,6 +58,16 @@ func main() {
 			"",
 			"Serve files fron `directory`, not memory",
 		)
+		serveFile = flag.String(
+			"serve-file",
+			"",
+			"If set, serves `file` for every GET request",
+		)
+		noSave = flag.Bool(
+			"no-save",
+			false,
+			"Save NULs instead of file contents",
+		)
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(
@@ -74,11 +85,23 @@ Options:
 	}
 	flag.Parse()
 
+	/* Work out the filesystem to use */
 	var fs webdav.FileSystem
 	if "" != *dir {
+		/* Make sure we have the directory */
+		if err := os.MkdirAll(*dir, 0700); nil != err {
+			log.Fatalf(
+				"Unable to make directory %q: %v",
+				*dir,
+				err,
+			)
+		}
 		fs = webdav.Dir(*dir)
 	} else {
 		fs = webdav.NewMemFS()
+	}
+	if *noSave {
+		fs = NewNoSaveFS(fs)
 	}
 
 	/* WebDAV handler */
@@ -88,6 +111,7 @@ Options:
 			FileSystem: fs,
 			LockSystem: webdav.NewMemLS(),
 		},
+		serveFile: *serveFile,
 	}
 
 	/* Register handler */
@@ -112,9 +136,18 @@ Options:
 /* handle Handles an HTTP connection */
 func (s server) Handle(w http.ResponseWriter, r *http.Request) {
 	logReq(r)
-	/* If we don't delete, life is easy */
-	if s.noDelete && http.MethodDelete == r.Method {
-		return
+
+	/* Special cases sometimes */
+	switch r.Method {
+	case http.MethodDelete: /* We may not allow deletes */
+		if s.noDelete {
+			return
+		}
+	case http.MethodGet: /* Maybe serve a single file */
+		if "" != s.serveFile {
+			http.ServeFile(w, r, s.serveFile)
+			return
+		}
 	}
 
 	s.w.ServeHTTP(w, r)
