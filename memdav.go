@@ -19,12 +19,19 @@ import (
 	"golang.org/x/net/webdav"
 )
 
+var (
+	defaultUser = ""
+	defaultPass = ""
+)
+
 /* server is a WebDAV handler */
 type server struct {
 	noDelete  bool /* Don't actually handle DELETE */
 	readOnly  bool
 	w         *webdav.Handler /* Wrapped WebDAV handler */
 	serveFile string          /* Single file to serve */
+	username  string          /* HTTP Username */
+	password  string          /* HTTP Password */
 }
 
 func main() {
@@ -74,6 +81,16 @@ func main() {
 			false,
 			"Allow only requests which read files",
 		)
+		username = flag.String(
+			"username",
+			defaultUser,
+			"Optional HTTP basic auth `username`",
+		)
+		password = flag.String(
+			"password",
+			defaultPass,
+			"Optional HTTP basic auth `password`",
+		)
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(
@@ -119,6 +136,8 @@ Options:
 			LockSystem: webdav.NewMemLS(),
 		},
 		serveFile: *serveFile,
+		username:  *username,
+		password:  *password,
 	}
 
 	/* Register handler */
@@ -143,6 +162,14 @@ Options:
 /* handle Handles an HTTP connection */
 func (s server) Handle(w http.ResponseWriter, r *http.Request) {
 	logReq(r)
+
+	/* If we have creds set, check them */
+	if "" != s.username || "" != s.password {
+		u, p, ok := r.BasicAuth()
+		if !ok || u != s.username || p != s.password {
+			return
+		}
+	}
 
 	/* Special cases sometimes */
 	switch r.Method {

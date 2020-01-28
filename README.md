@@ -8,6 +8,8 @@ few extra features.
 By default only HTTP is served.  With `-https-addr` HTTPS will be served as
 well.
 
+For legal use only.
+
 Backing Storage
 ---------------
 Files can either be served from a directory (with `-dir`) or from memory (the
@@ -31,8 +33,13 @@ directory, a single file can be returned for all GET requests with
 worrisome.  Originally it was written to demonstrate that file paths and file
 content aren't necessarily related.  Silly blue team...
 
-
-
-
-
-For legal use only.
+Authentication
+--------------
+HTTP Basic Authentication can be required with the `-username` and `-password`
+flags.  This provide a modicum of security but is, generally speaking, not
+hugely secure.  In particular, timing attacks are possible.  Instead of putting
+creds on the command-line, the username and password can be baked into the
+compiled binary with something like
+```sh
+go build -ldflags="-X main.defaultUser=foo -X main.defaultPass=bar"
+```
