@@ -6,7 +6,7 @@ package main
  * WebDAV server which stores files in memory
  * By J. Stuart McMurray
  * Created 20191105
- * Last Modified 20191219
+ * Last Modified 20200129\8
  */
 
 import (
@@ -21,7 +21,8 @@ import (
 
 /* server is a WebDAV handler */
 type server struct {
-	noDelete  bool            /* Don't actually handle DELETE */
+	noDelete  bool /* Don't actually handle DELETE */
+	readOnly  bool
 	w         *webdav.Handler /* Wrapped WebDAV handler */
 	serveFile string          /* Single file to serve */
 }
@@ -68,6 +69,11 @@ func main() {
 			false,
 			"Save NULs instead of file contents",
 		)
+		readOnly = flag.Bool(
+			"read-only",
+			false,
+			"Allow only requests which read files",
+		)
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(
@@ -107,6 +113,7 @@ Options:
 	/* WebDAV handler */
 	s := server{
 		noDelete: *noDelete,
+		readOnly: *readOnly,
 		w: &webdav.Handler{
 			FileSystem: fs,
 			LockSystem: webdav.NewMemLS(),
@@ -146,6 +153,17 @@ func (s server) Handle(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet: /* Maybe serve a single file */
 		if "" != s.serveFile {
 			http.ServeFile(w, r, s.serveFile)
+			return
+		}
+	}
+
+	/* If we're only allowing read access, whitelist the allowed methods */
+	if s.readOnly {
+		switch r.Method {
+		case "OPTIONS", "GET", "HEAD", "PROPFIND":
+			/* These are ok */
+		default:
+			/* This is not ok */
 			return
 		}
 	}
