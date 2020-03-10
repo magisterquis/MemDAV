@@ -6,13 +6,14 @@ package main
  * WebDAV server which stores files in memory
  * By J. Stuart McMurray
  * Created 20191105
- * Last Modified 20200129\8
+ * Last Modified 20200306
  */
 
 import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
@@ -45,6 +46,11 @@ func main() {
 			"listen-https",
 			"",
 			"HTTPS listen `address`",
+		)
+		unixAddr = flag.String(
+			"listen-unix",
+			"",
+			"Unix domain listen `address`",
 		)
 		certFile = flag.String(
 			"cert",
@@ -143,33 +149,102 @@ Options:
 	/* Register handler */
 	http.HandleFunc("/", s.Handle)
 
-	/* Serve HTTP and maybe HTTPS */
+	var (
+		ech     = make(chan error)
+		serving bool
+	)
+
+	/* Listen and serve on all the protocols */
 	if "" != *httpsAddr {
+		serving = true
 		go func() {
-			log.Printf("Will serve HTTPS on %v", *httpsAddr)
-			log.Fatalf("HTTPS Error: %v", http.ListenAndServeTLS(
-				*httpsAddr,
-				*certFile,
-				*keyFile,
-				nil,
-			))
+			l, err := net.Listen("tcp", *httpsAddr)
+			if nil != err {
+				ech <- fmt.Errorf(
+					"Error listening on %s: %w",
+					*httpsAddr,
+					err,
+				)
+				return
+			}
+			log.Printf("Will serve HTTPS on %s", l.Addr())
+			ech <- fmt.Errorf(
+				"HTTPS error: %w",
+				http.ServeTLS(l, nil, *certFile, *keyFile),
+			)
 		}()
 	}
-	log.Printf("Will serve HTTP on %v", *httpAddr)
-	log.Fatalf("HTTP Error: %v", http.ListenAndServe(*httpAddr, nil))
+	if "" != *httpAddr {
+		serving = true
+		go func() {
+			l, err := net.Listen("tcp", *httpAddr)
+			if nil != err {
+				ech <- fmt.Errorf(
+					"Error listening on %s: %w",
+					*httpAddr,
+					err,
+				)
+				return
+			}
+			log.Printf("Will serve HTTP on %s", l.Addr())
+			ech <- fmt.Errorf(
+				"HTTP error: %w",
+				http.Serve(l, nil),
+			)
+		}()
+	}
+	if "" != *unixAddr {
+		serving = true
+		go func() {
+			l, err := net.Listen("unix", *unixAddr)
+			if nil != err {
+				ech <- fmt.Errorf(
+					"Error listening on %s: %w",
+					*unixAddr,
+					err,
+				)
+				return
+			}
+			log.Printf("Will serve HTTP on %s", l.Addr())
+			ech <- fmt.Errorf(
+				"HTTP-over-unix error: %w",
+				http.Serve(l, nil),
+			)
+		}()
+	}
+	if !serving {
+		log.Fatalf("No listen addresses configured")
+	}
+	log.Fatalf("Error: %v", <-ech)
 }
 
 /* handle Handles an HTTP connection */
 func (s server) Handle(w http.ResponseWriter, r *http.Request) {
-	logReq(r)
-
 	/* If we have creds set, check them */
 	if "" != s.username || "" != s.password {
+		w.Header().Set(
+			"WWW-Authenticate",
+			`Basic realm="Auth Required"`,
+		)
 		u, p, ok := r.BasicAuth()
-		if !ok || u != s.username || p != s.password {
+		if !ok || ("" == u && "" == p) { /* Client didn't know? */
+			log.Printf("[%v] No auth", r.RemoteAddr)
+			http.Error(w, "Not authorized", 401)
+			return
+		}
+		if u != s.username || p != s.password {
+			log.Printf(
+				"[%s] Auth fail (%q / %q)",
+				r.RemoteAddr,
+				u,
+				p,
+			)
+			http.Error(w, "Not authorized", 401)
 			return
 		}
 	}
+
+	logReq(r)
 
 	/* Special cases sometimes */
 	switch r.Method {
